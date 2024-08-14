@@ -2,13 +2,13 @@ from telethon import TelegramClient, events, sync
 import re
 
 # تعيين معلومات الدخول الخاصة بـ Telegram API
-api_id = '22301177'
-api_hash = '5a3f28febb80ee1d2ba92e12ee6b4c40'
-phone_number = '+967774530312'
+api_id = '15903885'
+api_hash = '6626160405d02b9e9e3eb7879d7e498a'
+phone_number = '+967781487926'
 
 # قنوات الإشارات والوجهة
 source_channel = 'https://t.me/+suemhFyB0m4zYTg0'
-destination_channel = 'https://t.me/+xT-LSNPSRSYyNzVk'
+destination_channel = 'https://t.me/+LTQBpmC_DGQ2MjU0'
 
 # إنشاء عميل Telegram باستخدام حسابك الشخصي
 client = TelegramClient('forwarder', api_id, api_hash)
