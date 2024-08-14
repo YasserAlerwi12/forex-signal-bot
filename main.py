@@ -1,35 +1,26 @@
-from telethon.sync import TelegramClient
 import os
-import logging
+from telethon import TelegramClient, events
 
-# إعداد التسجيل لتتبع الأخطاء والمعلومات
-logging.basicConfig(level=logging.INFO)
-
-# قراءة القيم من المتغيرات البيئية
+# قراءة المتغيرات البيئة
 api_id = os.getenv('API_ID')
 api_hash = os.getenv('API_HASH')
-phone = os.getenv('PHONE_NUMBER')
+phone_number = os.getenv('PHONE_NUMBER')  # أو يمكن استخدام توكن البوت هنا
 
-# التحقق من أن جميع القيم موجودة
-if not api_id or not api_hash or not phone:
-    raise ValueError("API_ID, API_HASH, and PHONE_NUMBER must be set as environment variables.")
-
-# إنشاء جلسة Telegram
-client = TelegramClient(phone, api_id, api_hash)
+# إنشاء العميل باستخدام المتغيرات
+client = TelegramClient('session_name', api_id, api_hash)
 
 async def main():
-    # تسجيل الدخول
-    await client.start(phone)
-    
-    logging.info("Client started and connected.")
-    
-    # هنا يمكنك إضافة الكود الخاص بمتابعة القنوات ونقل الرسائل
-    # مثال:
-    async for message in client.iter_messages('source_channel'):
-        if 'link' not in message.message:  # تجاهل الرسائل التي تحتوي على روابط
-            await client.send_message('destination_channel', message)
+    await client.start(phone=lambda: phone_number)  # استخدام رقم الهاتف من المتغير البيئة
 
-# تشغيل العميل والتأكد من بقاء الاتصال قائماً
+    @client.on(events.NewMessage(chats=('اسم القناة')))
+    async def handler(event):
+        if not event.message.message:
+            return
+
+        # إرسال الرسالة إلى القناة الأخرى
+        await client.send_message('اسم القناة المستهدفة', event.message.message)
+
+    await client.run_until_disconnected()
+
 with client:
     client.loop.run_until_complete(main())
-    client.run_until_disconnected()
