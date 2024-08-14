@@ -1,34 +1,35 @@
+from telethon.sync import TelegramClient
 import os
-from telethon import TelegramClient, events
+import logging
 
-# الحصول على متغيرات البيئة من Heroku
-api_id = os.environ.get('API_ID')
-api_hash = os.environ.get('API_HASH')
-phone_number = os.environ.get('PHONE_NUMBER')
+# إعداد التسجيل لتتبع الأخطاء والمعلومات
+logging.basicConfig(level=logging.INFO)
 
-# إنشاء جلسة جديدة مع Telegram
-client = TelegramClient('session_name', api_id, api_hash)
+# قراءة القيم من المتغيرات البيئية
+api_id = os.getenv('API_ID')
+api_hash = os.getenv('API_HASH')
+phone = os.getenv('PHONE_NUMBER')
+
+# التحقق من أن جميع القيم موجودة
+if not api_id or not api_hash or not phone:
+    raise ValueError("API_ID, API_HASH, and PHONE_NUMBER must be set as environment variables.")
+
+# إنشاء جلسة Telegram
+client = TelegramClient(phone, api_id, api_hash)
 
 async def main():
-    # بدء الجلسة مع Telegram
-    await client.start(phone_number)
+    # تسجيل الدخول
+    await client.start(phone)
+    
+    logging.info("Client started and connected.")
+    
+    # هنا يمكنك إضافة الكود الخاص بمتابعة القنوات ونقل الرسائل
+    # مثال:
+    async for message in client.iter_messages('source_channel'):
+        if 'link' not in message.message:  # تجاهل الرسائل التي تحتوي على روابط
+            await client.send_message('destination_channel', message)
 
-    # مراقبة الرسائل الجديدة في القنوات المحددة
-    @client.on(events.NewMessage(chats=['suemhFyB0m4zYTg0']))
-    async def handler(event):
-        message = event.message.message
-        
-        # تحقق من أن الرسالة لا تحتوي على روابط
-        if 'http' not in message and 'https' not in message:
-            # إرسال الرسالة إلى قناتك
-            await client.send_message('xT-LSNPSRSYyNzVk', message)
-            
-            # متابعة الرسائل التي تشير إلى الإشارة الأصلية
-            print(f"Message forwarded: {message}")
-
-    # تشغيل السكريبت بشكل دائم
-    await client.run_until_disconnected()
-
-# تشغيل السكريبت
+# تشغيل العميل والتأكد من بقاء الاتصال قائماً
 with client:
     client.loop.run_until_complete(main())
+    client.run_until_disconnected()
