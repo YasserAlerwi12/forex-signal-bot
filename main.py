@@ -8,7 +8,7 @@ phone_number = '+967781487926'
 
 # قنوات الإشارات والوجهة
 source_channel = 'https://t.me/+suemhFyB0m4zYTg0'
-destination_channel = 'https://t.me/+xT-LSNPSRSYyNzVk'
+destination_channel = 'https://t.me/+LTQBpmC_DGQ2MjU0'
 
 # إنشاء عميل Telegram باستخدام حسابك الشخصي
 client = TelegramClient('forwarder', api_id, api_hash)
