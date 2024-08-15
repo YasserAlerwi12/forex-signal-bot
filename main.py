@@ -55,11 +55,15 @@ async def handle_new_message(event):
     # تحقق مما إذا كانت الرسالة تعديلاً على إشارة سابقة
     elif is_update(message.text):
         reference_id = extract_reference_id(message.text)
-        if reference_id and reference_id in signals:
-            original_message = signals[reference_id]
-            modified_text = f"Update on signal {reference_id}:\n{message.text}"
-            # إرسال الرسالة المعدلة كرد على الرسالة الأصلية
-            await client.send_message(destination_channel, modified_text, reply_to=original_message.id)
+        if reference_id:
+            # محاولة العثور على الرسالة الأصلية باستخدام المعرّف المرجعي
+            for signal_id in list(signals.keys()):
+                if signal_id == reference_id:
+                    original_message = signals[signal_id]
+                    modified_text = f"Update on signal {reference_id}:\n{message.text}"
+                    # إرسال الرسالة المعدلة كرد على الرسالة الأصلية
+                    await client.send_message(destination_channel, modified_text, reply_to=original_message.id)
+                    break
         else:
             # إذا لم يكن هناك إشارة مرجعية مطابقة، قم بنسخ الرسالة كما هي
             await client.send_message(destination_channel, message)
