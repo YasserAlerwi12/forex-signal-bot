@@ -32,9 +32,9 @@ def contains_signal(text):
 def is_update(text):
     return "TP" in text or "SL" in text or "Secure This trade" in text
 
-# دالة لاستخراج معرف الرسالة المرجعية
+# دالة لاستخراج معرف الرسالة المرجعية من النص
 def extract_reference_id(text):
-    # نبحث عن الرقم الذي يشير إلى الإشارة السابقة
+    # نفترض أن معرف الرسالة المرجعية يتم الإشارة إليه بشكل واضح في النص
     match = re.search(r'(\d+)', text)
     return match.group(0) if match else None
 
@@ -52,7 +52,7 @@ async def handle_new_message(event):
         signal_id = f"{message.id}"
         signals[signal_id] = message
         await client.send_message(destination_channel, message)
-    
+
     # تحقق مما إذا كانت الرسالة تعديلاً على إشارة سابقة
     elif is_update(message.text):
         reference_id = extract_reference_id(message.text)
@@ -63,8 +63,9 @@ async def handle_new_message(event):
             await client.send_message(destination_channel, modified_text, reply_to=original_message.id)
             return
 
-    # إذا لم تكن الرسالة إشارة أو تعديل، نقوم بنسخ الرسالة إلى القناة الوجهة
-    await client.send_message(destination_channel, message)
+    # إذا كانت الرسالة ليست إشارة ولا تعديل، ننسخ الرسالة كما هي
+    else:
+        await client.send_message(destination_channel, message)
 
 # تشغيل العميل
 client.run_until_disconnected()
