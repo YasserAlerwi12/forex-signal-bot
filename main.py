@@ -34,7 +34,6 @@ def is_update(text):
 
 # دالة لاستخراج معرف الرسالة المرجعية من النص
 def extract_reference_id(text):
-    # نفترض أن معرف الرسالة المرجعية يتم الإشارة إليه بشكل واضح في النص
     match = re.search(r'(\d+)', text)
     return match.group(0) if match else None
 
@@ -61,7 +60,9 @@ async def handle_new_message(event):
             modified_text = f"Update on signal {reference_id}:\n{message.text}"
             # إرسال الرسالة المعدلة كرد على الرسالة الأصلية
             await client.send_message(destination_channel, modified_text, reply_to=original_message.id)
-            return
+        else:
+            # إذا لم يكن هناك إشارة مرجعية مطابقة، قم بنسخ الرسالة كما هي
+            await client.send_message(destination_channel, message)
 
     # إذا كانت الرسالة ليست إشارة ولا تعديل، ننسخ الرسالة كما هي
     else:
