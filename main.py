@@ -8,7 +8,6 @@ phone_number = '+967781487926'
 
 # قنوات الإشارات والوجهة
 source_channel = 'https://t.me/+SCKJv5s6V4o5YTlk'
-source_channe2 = 'https://t.me/+-SuGN_8JuS9jN2Nl'
 destination_channel = 'https://t.me/+LTQBpmC_DGQ2MjU0'
 
 # إنشاء عميل Telegram باستخدام حسابك الشخصي
@@ -38,7 +37,7 @@ def extract_reference_id(text):
     match = re.search(r'\b(\d+)\b', text)
     return match.group(0) if match else None
 
-@client.on(events.NewMessage(chats=source_channel,chats=source_channe2))
+@client.on(events.NewMessage(chats=source_channel))
 async def handle_new_message(event):
     message = event.message
 
