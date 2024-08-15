@@ -48,22 +48,19 @@ async def handle_new_message(event):
 
     # تحقق مما إذا كانت الرسالة تحتوي على إشارة
     if contains_signal(message.text):
-        # إذا كانت رسالة تحتوي على إشارة، نقوم بتخزينها مع معرف فريد
-        signal_id = f"{message.id}"
-        signals[signal_id] = message
+        # إنشاء مفتاح فريد لكل إشارة (باستخدام نص الرسالة ومعرف القناة)
+        signal_key = f"{event.chat_id}_{message.text[:50]}"  # استخدام أول 50 حرف فقط كمفتاح
+        signals[signal_key] = message
         await client.send_message(destination_channel, message)
 
     # تحقق مما إذا كانت الرسالة تعديلاً على إشارة سابقة
     elif is_update(message.text):
         reference_id = extract_reference_id(message.text)
         if reference_id:
-            # محاولة العثور على الرسالة الأصلية باستخدام المعرف المرجعي
-            for signal_id in list(signals.keys()):
-                # نبحث عن المعرف المرجعي في نص الرسالة الأصلية
-                if reference_id in signals[signal_id].text:
-                    original_message_id = signal_id
-                    # إرسال الرسالة المعدلة كرد على الرسالة الأصلية
-                    await client.send_message(destination_channel, message, reply_to=original_message_id)
+            # محاولة العثور على الرسالة الأصلية باستخدام مفتاح الإشارة
+            for signal_key, original_message in signals.items():
+                if reference_id in original_message.text:
+                    await client.send_message(destination_channel, message, reply_to=original_message.id)
                     break
         else:
             # إذا لم يكن هناك إشارة مرجعية، قم بنسخ الرسالة كما هي
