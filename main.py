@@ -1,4 +1,5 @@
 
+
 from telethon import TelegramClient, events
 import re
 
@@ -46,19 +47,19 @@ async def handle_new_message(event):
         # إذا كانت رسالة تحتوي على إشارة، نقوم بتخزينها مع معرف فريد
         signal_id = message.id
         signals[signal_id] = message
-        await client.send_message(destination_channel, message)
+        # إرسال الإشارة الأصلية
+        sent_message = await client.send_message(destination_channel, message)
+        # تحديث القاموس لتخزين معرف الرسالة المرسلة في القناة الوجهة
+        signals[signal_id] = sent_message
 
     # تحقق مما إذا كانت الرسالة تعديلاً على إشارة سابقة
     elif is_update(message.text):
-        # محاولة العثور على الرسالة الأصلية باستخدام المعرف المرجعي
-        for signal_id, original_message in signals.items():
-            if message.is_reply and message.reply_to_msg_id == signal_id:
-                # إرسال الرسالة المعدلة كرد على الرسالة الأصلية
-                await client.send_message(destination_channel, message, reply_to=signal_id)
+        # يجب أن تكون الرسالة التحديثية ردًا على الإشارة الأصلية
+        for original_signal_id, original_message in signals.items():
+            # نتحقق مما إذا كانت الرسالة المعدلة مرتبطة بالإشارة الأصلية
+            if message.is_reply and message.reply_to_msg_id == original_signal_id:
+                await client.send_message(destination_channel, message, reply_to=original_message.id)
                 break
-        else:
-            # إذا لم يكن هناك إشارة مرجعية، قم بنسخ الرسالة كما هي
-            await client.send_message(destination_channel, message)
 
     # إذا كانت الرسالة ليست إشارة ولا تعديل، ننسخ الرسالة كما هي
     else:
