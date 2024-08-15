@@ -35,7 +35,7 @@ def is_update(text):
 # دالة لاستخراج معرف الرسالة المرجعية
 def extract_reference_id(text):
     # نبحث عن الرقم الذي يشير إلى الإشارة السابقة
-    match = re.search(r'\d+', text)
+    match = re.search(r'(\d+)', text)
     return match.group(0) if match else None
 
 @client.on(events.NewMessage(chats=source_channel))
@@ -50,20 +50,20 @@ async def handle_new_message(event):
     if contains_signal(message.text):
         # إذا كانت رسالة تحتوي على إشارة، نقوم بتخزينها مع معرف فريد
         signal_id = f"{message.id}"
-        signals[signal_id] = message.text
+        signals[signal_id] = message
         await client.send_message(destination_channel, message)
-
+    
     # تحقق مما إذا كانت الرسالة تعديلاً على إشارة سابقة
     elif is_update(message.text):
         reference_id = extract_reference_id(message.text)
         if reference_id and reference_id in signals:
-            original_message_id = int(reference_id)
-            original_message = await client.get_messages(source_channel, ids=original_message_id)
+            original_message = signals[reference_id]
             modified_text = f"Update on signal {reference_id}:\n{message.text}"
+            # إرسال الرسالة المعدلة كرد على الرسالة الأصلية
             await client.send_message(destination_channel, modified_text, reply_to=original_message.id)
             return
 
-    # نسخ الرسالة إلى القناة الوجهة
+    # إذا لم تكن الرسالة إشارة أو تعديل، نقوم بنسخ الرسالة إلى القناة الوجهة
     await client.send_message(destination_channel, message)
 
 # تشغيل العميل
