@@ -1,4 +1,4 @@
-from telethon import TelegramClient, events, sync
+from telethon import TelegramClient, events
 import re
 
 # تعيين معلومات الدخول الخاصة بـ Telegram API
@@ -28,31 +28,41 @@ def contains_link(text):
 def contains_signal(text):
     return "BUY" in text.upper() or "SELL" in text.upper()
 
+# دالة للتحقق مما إذا كانت الرسالة تعديلاً على إشارة سابقة
+def is_update(text):
+    return "TP" in text or "SL" in text or "Secure This trade" in text
+
 @client.on(events.NewMessage(chats=source_channel))
 async def handle_new_message(event):
     message = event.message
 
-    # تحقق مما إذا كانت الرسالة تحتوي على رابط أو لا تحتوي على إشارة
-    if not contains_link(message.text):
-        if contains_signal(message.text):
-            # إذا كانت رسالة تحتوي على إشارة، نقوم بتخزينها مع معرف فريد
-            signal_id = f"{message.id}"
-            signals[signal_id] = message.text
-            await client.send_message(destination_channel, message)
+    # تحقق مما إذا كانت الرسالة تحتوي على رابط
+    if contains_link(message.text):
+        return
 
-        else:
-            # إذا كانت رسالة تحتوي على تعديل، نبحث عن الرسالة الأصلية
-            reference_id = extract_reference_text(message.text)
-            if reference_id and reference_id in signals:
-                original_signal_text = signals[reference_id]
-                modified_text = f"Update on signal {reference_id}:\n{message.text}"
-                await client.send_message(destination_channel, modified_text)
+    # تحقق مما إذا كانت الرسالة تحتوي على إشارة
+    if contains_signal(message.text):
+        # إذا كانت رسالة تحتوي على إشارة، نقوم بتخزينها مع معرف فريد
+        signal_id = f"{message.id}"
+        signals[signal_id] = message.text
+
+    # تحقق مما إذا كانت الرسالة تعديلاً على إشارة سابقة
+    elif is_update(message.text):
+        reference_id = extract_reference_text(message.text)
+        if reference_id and reference_id in signals:
+            original_signal_text = signals[reference_id]
+            modified_text = f"Update on signal {reference_id}:\n{message.text}"
+            await client.send_message(destination_channel, modified_text)
+            return
+
+    # نسخ الرسالة إلى القناة الوجهة
+    await client.send_message(destination_channel, message)
 
 def extract_reference_text(text):
-    # هذه الدالة تقوم باستخراج النص المرجعي من الرسالة المعدلة
+    # تقوم هذه الدالة باستخراج النص المرجعي من الرسالة المعدلة
     # نفترض أن النص المرجعي يتم الإشارة إليه باستخدام رقم معين
-    match = re.search(r'(\d+)', text)  # استخراج الرقم من النص
-    return match.group(1) if match else None
+    match = re.search(r'\d+', text)  # استخراج الرقم من النص
+    return match.group(0) if match else None
 
 # تشغيل العميل
 client.run_until_disconnected()
