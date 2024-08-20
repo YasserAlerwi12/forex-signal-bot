@@ -9,7 +9,7 @@ api_id = '17271604'
 api_hash = '078eef1324b45722acc3505d359773a9'
 phone_number = '+967734231449'
 # قنوات الإشارات والوجهة
-source_channels = ['https://t.me/+-SuGN_8JuS9jN2Nl', 'https://t.me/+SCKJv5s6V4o5YTlk']
+source_channels = ['https://t.me/+suemhFyB0m4zYTg0', 'https://t.me/+SCKJv5s6V4o5YTlk']
 destination_channel = 'https://t.me/+suemhFyB0m4zYTg0'
 
 #إنشاء عميل Telegram باستخدام حسابك الشخصي# إعداد FIX
