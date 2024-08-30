@@ -35,10 +35,6 @@ try:
 except Exception as e:
     print(f"Error connecting to FIX server: {e}")
 
-# إعداد FIX parser والمولد
-fix_parser = simplefix.parser.FixParser()
-fix_builder = simplefix.FixMessage()
-
 # دالة للتحقق مما إذا كانت الرسالة تحتوي على إشارة
 def contains_signal(text):
     return "BUY" in text.upper() or "SELL" in text.upper()
@@ -50,26 +46,26 @@ def is_update(text):
 # دالة لإرسال رسالة FIX
 def send_fix_message(fix_message):
     try:
-        fix_message_str = str(fix_message)
+        fix_message_str = fix_message.to_string()
         fix_socket.sendall(fix_message_str.encode())
     except Exception as e:
         print(f"Error sending FIX message: {e}")
 
 # دالة لإنشاء رسالة FIX جديدة بناءً على الإشارة
 def create_fix_order(signal_type, symbol, price, volume):
-    fix_builder.clear()
-    fix_builder.append_pair(8, 'FIX.4.4')  # BeginString
-    fix_builder.append_pair(35, 'D')  # MsgType: New Order - Single
-    fix_builder.append_pair(49, sender_comp_id)  # SenderCompID
-    fix_builder.append_pair(56, target_comp_id)  # TargetCompID
-    fix_builder.append_pair(11, 'ORDER12345')  # ClOrdID - Unique order ID, needs to be unique for each order
-    fix_builder.append_pair(55, symbol)  # Symbol
-    fix_builder.append_pair(54, '1' if signal_type == 'BUY' else '2')  # Side: 1 = Buy, 2 = Sell
-    fix_builder.append_pair(38, str(volume))  # OrderQty
-    fix_builder.append_pair(44, str(price))  # Price
-    fix_builder.append_pair(40, '2')  # OrdType: 2 = Limit
+    fix_message = simplefix.FixMessage()
+    fix_message.append_pair(8, 'FIX.4.4')  # BeginString
+    fix_message.append_pair(35, 'D')  # MsgType: New Order - Single
+    fix_message.append_pair(49, sender_comp_id)  # SenderCompID
+    fix_message.append_pair(56, target_comp_id)  # TargetCompID
+    fix_message.append_pair(11, 'ORDER12345')  # ClOrdID - Unique order ID
+    fix_message.append_pair(55, symbol)  # Symbol
+    fix_message.append_pair(54, '1' if signal_type == 'BUY' else '2')  # Side: 1 = Buy, 2 = Sell
+    fix_message.append_pair(38, str(volume))  # OrderQty
+    fix_message.append_pair(44, str(price))  # Price
+    fix_message.append_pair(40, '2')  # OrdType: 2 = Limit
 
-    return fix_builder
+    return fix_message
 
 def extract_order_details(text):
     # افتراضياً، نبحث عن بعض الأنماط في الرسالة لاستخراج المعلومات.
