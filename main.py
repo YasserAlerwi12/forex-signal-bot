@@ -35,6 +35,10 @@ try:
 except Exception as e:
     print(f"Error connecting to FIX server: {e}")
 
+# إعداد FIX parser والمولد
+fix_parser = simplefix.parser.FixParser()
+fix_builder = simplefix.FixMessage()
+
 # دالة للتحقق مما إذا كانت الرسالة تحتوي على إشارة
 def contains_signal(text):
     return "BUY" in text.upper() or "SELL" in text.upper()
@@ -48,13 +52,12 @@ def send_fix_message(fix_message):
     try:
         fix_message_str = str(fix_message)
         fix_socket.sendall(fix_message_str.encode())
-        print(f"Sent FIX message: {fix_message_str}")
     except Exception as e:
         print(f"Error sending FIX message: {e}")
 
 # دالة لإنشاء رسالة FIX جديدة بناءً على الإشارة
 def create_fix_order(signal_type, symbol, price, volume):
-    fix_builder = simplefix.FixMessage()
+    fix_builder.clear()
     fix_builder.append_pair(8, 'FIX.4.4')  # BeginString
     fix_builder.append_pair(35, 'D')  # MsgType: New Order - Single
     fix_builder.append_pair(49, sender_comp_id)  # SenderCompID
@@ -89,7 +92,6 @@ async def handle_new_message(event):
         if symbol and price and volume:
             fix_message = create_fix_order(signal_type, symbol, price, volume)
             send_fix_message(fix_message)
-            print(f"Processed signal: {signal_type} {symbol} at {price} for {volume}")
 
 # تشغيل العميل
 client.run_until_disconnected()
