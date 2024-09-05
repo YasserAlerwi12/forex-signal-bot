@@ -1,93 +1,134 @@
 from telethon import TelegramClient, events
 import re
-import socket
-import simplefix
+import sqlite3
+import requests
+from requests_oauthlib import OAuth2Session
+import asyncio
 
-# تعيين معلومات الدخول الخاصة بـ Telegram API
-api_id = '17271604'
-api_hash = '078eef1324b45722acc3505d359773a9'
-phone_number = '+967734231449'
+# إعدادات الاتصال
+api_id = '17271604'  # استبدل بـ API ID الخاص بك
+api_hash = '078eef1324b45722acc3505d359773a9'  # استبدل بـ API Hash الخاص بك
+phone_number = '+967734231449'  # استبدل برقم هاتفك الدولي
+channel_ids = ['https://t.me/+suemhFyB0m4zYTg0']  # استبدل بـ ID القناة الخاص بك
 
-# قنوات الإشارات والوجهة
-source_channels = ['https://t.me/+suemhFyB0m4zYTg0', 'https://t.me/+SCKJv5s6V4o5YTlk']
-destination_channel = 'https://t.me/+suemhFyB0m4zYTg0'
-
-# إعداد FIX
-fix_server = 'demo-uk-eqx-01.p.ctrader.com'
-fix_port = 5212
-sender_comp_id = 'demo.topfx.3135973'
-target_comp_id = 'cServer'
+# إعداد OAuth2
+redirect_uri = 'http://localhost'
+client_id = '11593_Cy4lDavoQIcjOIwAeOv85eT1ByxcSokhbIIVovV4zaVsiABZtw'
+client_secret = 'mzxWPsJYFB8YBosiTkh4O4S2028XSwU6PJdSOMO8VctTrNKzlA'
+authorization_base_url = 'https://connect.spotware.com/apps/auth'
+token_url = 'https://openapi.ctrader.com/apps/auth?client_id=11593_Cy4lDavoQIcjOIwAeOv85eT1ByxcSokhbIIVovV4zaVsiABZtw&redirect_uri=https%3A%2F%2Fopenapi.ctrader.com%2Fapps%2F11593%2Fplayground&scope=accounts'
 
 # إنشاء عميل Telegram
-client = TelegramClient('forwarder', api_id, api_hash)
+client = TelegramClient('session_name', api_id, api_hash)
 
-# تسجيل الدخول
-client.start(phone=phone_number)
+# نمط لاستخراج تفاصيل الإشارة
+signal_pattern = re.compile(r"(BUY|SELL)\s+@?\s+(\d+\.\d+)\s*/?\s*(\d+\.\d+)?", re.IGNORECASE)
+tp_pattern = re.compile(r"TP:?\s*(\d+\.\d+)")
+sl_pattern = re.compile(r"SL:?\s*(\d+\.\d+)")
 
-# لتخزين الإشارات الأصلية
-signals = {}
+# إنشاء قاعدة البيانات SQLite لحفظ الإشارات
+conn = sqlite3.connect('trading_signals.db')
+c = conn.cursor()
 
-# إعداد FIX socket
-fix_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# إنشاء جدول الإشارات إذا لم يكن موجوداً
+c.execute('''CREATE TABLE IF NOT EXISTS signals
+             (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, signal_type TEXT, entry_price REAL, tp_levels TEXT, stop_loss REAL, status TEXT)''')
+conn.commit()
 
-try:
-    fix_socket.connect((fix_server, fix_port))
-except Exception as e:
-    print(f"Error connecting to FIX server: {e}")
+# إعداد OAuth2
+oauth = OAuth2Session(client_id, redirect_uri=redirect_uri)
 
-# دالة للتحقق مما إذا كانت الرسالة تحتوي على إشارة
-def contains_signal(text):
-    return "BUY" in text.upper() or "SELL" in text.upper()
-
-# دالة للتحقق مما إذا كانت الرسالة تعديلاً على إشارة سابقة
-def is_update(text):
-    return "TP" in text or "SL" in text or "Secure This trade" in text
-
-# دالة لإرسال رسالة FIX
-def send_fix_message(fix_message):
+def get_access_token():
     try:
-        fix_message_str = fix_message.to_string()
-        fix_socket.sendall(fix_message_str.encode())
+        authorization_url, state = oauth.authorization_url(authorization_base_url)
+        print(f"اذهب إلى هذا الرابط لتفويض التطبيق: {authorization_url}")
+        authorization_response = input('أدخل الرابط الذي تم توجيهك إليه بعد التفويض: ')
+        token = oauth.fetch_token(token_url, authorization_response=authorization_response, client_secret=client_secret)
+        return token['access_token']
     except Exception as e:
-        print(f"Error sending FIX message: {e}")
+        print(f"فشل الحصول على رمز الوصول: {e}")
+        return None
 
-# دالة لإنشاء رسالة FIX جديدة بناءً على الإشارة
-def create_fix_order(signal_type, symbol, price, volume):
-    fix_message = simplefix.FixMessage()
-    fix_message.append_pair(8, 'FIX.4.4')  # BeginString
-    fix_message.append_pair(35, 'D')  # MsgType: New Order - Single
-    fix_message.append_pair(49, sender_comp_id)  # SenderCompID
-    fix_message.append_pair(56, target_comp_id)  # TargetCompID
-    fix_message.append_pair(11, 'ORDER12345')  # ClOrdID - Unique order ID
-    fix_message.append_pair(55, symbol)  # Symbol
-    fix_message.append_pair(54, '1' if signal_type == 'BUY' else '2')  # Side: 1 = Buy, 2 = Sell
-    fix_message.append_pair(38, str(volume))  # OrderQty
-    fix_message.append_pair(44, str(price))  # Price
-    fix_message.append_pair(40, '2')  # OrdType: 2 = Limit
+def send_trade_to_ctrader(signal):
+    access_token = get_access_token()  # الحصول على Access Token
+    if not access_token:
+        print("لا يمكن الحصول على رمز الوصول، لا يمكن إرسال الصفقة.")
+        return
 
-    return fix_message
+    headers = {'Authorization': f'Bearer {access_token}'}
+    
+    trade_details = {
+        'symbol': 'GBPJPY',  # استبدل بالرمز الفعلي إذا كان موجودًا
+        'action': signal['action'],  # 'BUY' أو 'SELL'
+        'price': signal['price'],
+        'tp': signal['tp'],
+        'sl': signal['sl']
+    }
+    
+    try:
+        response = requests.post('https://api.spotware.com/v1/orders', json=trade_details, headers=headers)
+        response.raise_for_status()  # ستثير استثناء إذا كانت الاستجابة تحتوي على رمز حالة غير 2xx
+        print("تم فتح الصفقة بنجاح")
+    except requests.exceptions.RequestException as e:
+        print(f"فشل فتح الصفقة: {e}")
 
-def extract_order_details(text):
-    # افتراضياً، نبحث عن بعض الأنماط في الرسالة لاستخراج المعلومات.
-    match = re.search(r'(\w+)\s*at\s*([\d.]+)\s*for\s*(\d+)', text, re.IGNORECASE)
-    if match:
-        symbol = match.group(1).upper()
-        price = float(match.group(2))
-        volume = int(match.group(3))
-        return symbol, price, volume
-    return None, None, None
+async def save_signal(message_id, signal_type, entry_price, tp_levels, stop_loss):
+    tp_levels_str = ",".join(map(str, tp_levels))  # تخزين TP كمجموعة
+    c.execute('INSERT INTO signals (message_id, signal_type, entry_price, tp_levels, stop_loss, status) VALUES (?, ?, ?, ?, ?, ?)',
+              (message_id, signal_type, entry_price, tp_levels_str, stop_loss, 'open'))
+    conn.commit()
+    signal = {
+        'symbol': 'GBPJPY',  # استبدل بالرمز الفعلي إذا كان موجودًا
+        'action': signal_type,
+        'price': entry_price,
+        'tp': tp_levels,
+        'sl': stop_loss
+    }
+    send_trade_to_ctrader(signal)
 
-@client.on(events.NewMessage(chats=source_channels))
-async def handle_new_message(event):
-    message = event.message
+async def update_signal(message_id, new_sl=None, new_status=None):
+    if new_sl:
+        c.execute('UPDATE signals SET stop_loss = ? WHERE message_id = ?', (new_sl, message_id))
+    if new_status:
+        c.execute('UPDATE signals SET status = ? WHERE message_id = ?', (new_status, message_id))
+    conn.commit()
 
-    if contains_signal(message.text):
-        signal_type = 'BUY' if 'BUY' in message.text.upper() else 'SELL'
-        symbol, price, volume = extract_order_details(message.text)
+async def handle_signal(message):
+    text = message.message
+    signal_match = signal_pattern.search(text)
+    tp_matches = tp_pattern.findall(text)
+    sl_match = sl_pattern.search(text)
+    
+    if signal_match:
+        signal_type = signal_match.group(1)
+        entry_price = float(signal_match.group(2))
+        tp_levels = [float(tp) for tp in tp_matches]
+        stop_loss = float(sl_match.group(1)) if sl_match else None
+        
+        print(f"معالجة إشارة جديدة: {signal_type} عند {entry_price} مع TP {tp_levels} و SL {stop_loss}")
+        await save_signal(message.id, signal_type, entry_price, tp_levels, stop_loss)
 
-        if symbol and price and volume:
-            fix_message = create_fix_order(signal_type, symbol, price, volume)
-            send_fix_message(fix_message)
+async def handle_update(message):
+    original_message_id = message.reply_to_msg_id
+    if original_message_id:
+        if "Move SL" in message.message:
+            new_sl = extract_new_sl_from_message(message.message)  # افترض أنك لديك دالة لاستخراج SL الجديد
+            await update_signal(original_message_id, new_sl=new_sl)
+        elif "SL hit" in message.message:
+            await update_signal(original_message_id, new_status="closed")
+
+@client.on(events.NewMessage(chats=channel_ids))
+async def new_message_listener(event):
+    if event.message.is_reply:
+        await handle_update(event.message)
+    else:
+        await handle_signal(event.message)
+
+async def main():
+    await client.start(phone=phone_number)
+    print("Client started")
+    await client.run_until_disconnected()
 
 # تشغيل العميل
-client.run_until_disconnected()
+if __name__ == '__main__':
+    asyncio.run(main())
