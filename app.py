@@ -1,5 +1,6 @@
 from flask import Flask, jsonify
 import sqlite3
+import os
 
 app = Flask(__name__)
 
@@ -30,4 +31,6 @@ def get_signals_api():
     return jsonify(signals)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # التأكد من أن التطبيق يستمع على المنفذ المناسب
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
