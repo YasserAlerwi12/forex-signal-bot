@@ -2,6 +2,7 @@ from telethon import TelegramClient, events
 import re
 import sqlite3
 import asyncio
+from flask import Flask, jsonify
 
 # إعدادات الاتصال
 api_id = '17271604'  # استبدل بـ API ID الخاص بك
@@ -85,3 +86,33 @@ async def main():
 # تشغيل العميل
 if __name__ == '__main__':
     asyncio.run(main())
+
+app = Flask(__name__)
+
+# الاتصال بقاعدة البيانات
+def get_db_connection():
+    conn = sqlite3.connect('trading_signals.db')
+    conn.row_factory = sqlite3.Row  # لتنسيق البيانات كقواميس
+    return conn
+
+@app.route('/get_signals', methods=['GET'])
+def get_signals():
+    conn = get_db_connection()
+    signals = conn.execute('SELECT * FROM signals WHERE status = "open"').fetchall()
+    conn.close()
+
+    signal_list = []
+    for signal in signals:
+        signal_list.append({
+            'id': signal['id'],
+            'signal_type': signal['signal_type'],
+            'entry_price': signal['entry_price'],
+            'tp_levels': signal['tp_levels'].split(','),
+            'stop_loss': signal['stop_loss'],
+            'status': signal['status']
+        })
+    return jsonify(signal_list)
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
