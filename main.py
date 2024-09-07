@@ -1,87 +1,163 @@
-from telethon import TelegramClient, events
 import re
-import sqlite3
-import asyncio
+import os
+import psycopg2
+from telethon import TelegramClient, events
+from ctrader_open_api import Client, Protobuf, TcpProtocol, Auth, EndPoints
+from dotenv import load_dotenv
+from twisted.internet import reactor
 
-# إعدادات الاتصال
-api_id = '17271604'  # استبدل بـ API ID الخاص بك
-api_hash = '078eef1324b45722acc3505d359773a9'  # استبدل بـ API Hash الخاص بك
-phone_number = '+967734231449'  # استبدل برقم هاتفك الدولي
-channel_ids = ['https://t.me/+suemhFyB0m4zYTg0']  # استبدل بأسماء القنوات الخاصة بك
+# تحميل المعلومات الحساسة من .env ملف
+load_dotenv()
+api_id = os.getenv('TELEGRAM_API_ID')
+api_hash = os.getenv('TELEGRAM_API_HASH')
+phone_number = os.getenv('PHONE_NUMBER')
 
-# إنشاء عميل Telegram
+# إعدادات cTrader API
+CTRADER_CLIENT_ID = os.getenv('CTRADER_CLIENT_ID')
+CTRADER_CLIENT_SECRET = os.getenv('CTRADER_CLIENT_SECRET')
+hostType = os.getenv('CTRADER_HOST_TYPE', 'demo')  # يمكن التعديل بين live و demo
+host = EndPoints.PROTOBUF_LIVE_HOST if hostType.lower() == "live" else EndPoints.PROTOBUF_DEMO_HOST
+ctrader_client = Client(host, EndPoints.PROTOBUF_PORT, TcpProtocol)
+
+# إعداد عميل Telegram
 client = TelegramClient('session_name', api_id, api_hash)
 
-# نمط لاستخراج تفاصيل الإشارة
-signal_pattern = re.compile(r"(BUY|SELL)\s+@?\s+(\d+\.\d+)\s*/?\s*(\d+\.\d+)?", re.IGNORECASE)
-tp_pattern = re.compile(r"TP:?\s*(\d+\.\d+)")
-sl_pattern = re.compile(r"SL:?\s*(\d+\.\d+)")
+# إعداد اتصال PostgreSQL
+def get_db_connection():
+    try:
+        conn = psycopg2.connect(os.getenv('DATABASE_URL'), sslmode='require')
+        return conn
+    except psycopg2.Error as e:
+        print(f"Error connecting to PostgreSQL database: {e}")
+        raise e
 
-# إنشاء قاعدة البيانات SQLite لحفظ الإشارات
-conn = sqlite3.connect('trading_signals.db')
-c = conn.cursor()
-
-# إنشاء جدول الإشارات إذا لم يكن موجوداً
-c.execute('''CREATE TABLE IF NOT EXISTS signals
-             (id INTEGER PRIMARY KEY AUTOINCREMENT, message_id INTEGER, signal_type TEXT, entry_price REAL, tp_levels TEXT, stop_loss REAL, status TEXT)''')
-conn.commit()
-
-async def save_signal(message_id, signal_type, entry_price, tp_levels, stop_loss):
-    tp_levels_str = ",".join(map(str, tp_levels))  # تخزين TP كمجموعة
-    print(f"Saving signal: {signal_type} at {entry_price} with TP {tp_levels_str} and SL {stop_loss}")
-    c.execute('INSERT INTO signals (message_id, signal_type, entry_price, tp_levels, stop_loss, status) VALUES (?, ?, ?, ?, ?, ?)',
-              (message_id, signal_type, entry_price, tp_levels_str, stop_loss, 'open'))
+# إنشاء الجداول في قاعدة البيانات PostgreSQL
+def create_tables():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS signals (
+        message_id BIGINT PRIMARY KEY,
+        signal_type TEXT,
+        entry_price REAL,
+        tp_prices TEXT,
+        sl_price REAL
+    )
+    ''')
     conn.commit()
+    cursor.close()
+    conn.close()
 
-async def update_signal(message_id, new_sl=None, new_status=None):
-    if new_sl:
-        print(f"Updating stop loss for message ID {message_id} to {new_sl}")
-        c.execute('UPDATE signals SET stop_loss = ? WHERE message_id = ?', (new_sl, message_id))
-    if new_status:
-        print(f"Updating status for message ID {message_id} to {new_status}")
-        c.execute('UPDATE signals SET status = ? WHERE message_id = ?', (new_status, message_id))
-    conn.commit()
+# وظيفة لإضافة إشارة جديدة إلى قاعدة البيانات
+def add_signal_to_db(message_id, signal_data):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        tp_prices_str = ','.join(map(str, signal_data['tp']))
+        cursor.execute('''
+        INSERT INTO signals (message_id, signal_type, entry_price, tp_prices, sl_price) 
+        VALUES (%s, %s, %s, %s, %s)
+        ''', (message_id, signal_data['type'], signal_data['entry_price'], tp_prices_str, signal_data['sl']))
+        conn.commit()
+    except psycopg2.Error as e:
+        print(f"Error adding signal to database: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
-async def handle_signal(message):
-    text = message.message
-    signal_match = signal_pattern.search(text)
-    tp_matches = tp_pattern.findall(text)
-    sl_match = sl_pattern.search(text)
+# وظيفة لاسترجاع إشارة من قاعدة البيانات
+def get_signal_from_db(message_id):
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM signals WHERE message_id = %s', (message_id,))
+        signal = cursor.fetchone()
+        return signal
+    except psycopg2.Error as e:
+        print(f"Error retrieving signal from database: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+# تسجيل الدخول إلى حساب Telegram الشخصي
+async def start_telegram_client():
+    await client.start(phone_number)
+    print("Telegram client started. Listening for signals...")
+
+# تحليل الإشارة
+def parse_signal(message):
+    pattern = r"(BUY|SELL)\s*@\s*(\d+\.\d+)"
+    match = re.search(pattern, message)
+    if match:
+        signal_type = match.group(1)
+        entry_price = float(match.group(2))
+        tp_pattern = r"TP:\s*(\d+\.\d+)"
+        sl_pattern = r"SL:\s*(\d+\.\d+)"
+        tp_match = re.findall(tp_pattern, message)
+        sl_match = re.search(sl_pattern, message)
+        if tp_match and sl_match:
+            tp_prices = list(map(float, tp_match))
+            sl_price = float(sl_match.group(1))
+            return {"type": signal_type, "entry_price": entry_price, "tp": tp_prices, "sl": sl_price}
+    return None
+
+# إرسال طلب التداول باستخدام ctrader_open_api.Client
+def execute_trade(signal_data):
+    direction = 1 if signal_data['type'] == 'BUY' else 2  # 1: BUY, 2: SELL
+    request = Protobuf.NewOrderRequest(
+        accountId=int(os.getenv('CTRADER_ACCOUNT_ID')),  # استبدل بـ Account ID الخاص بك
+        symbolId="GBPJPY",
+        tradeSide=direction,
+        volume=100000,  # هنا نحدد حجم الصفقة
+        stopLoss=signal_data['sl'],
+        takeProfit=signal_data['tp'][0]
+    )
     
-    if signal_match:
-        signal_type = signal_match.group(1)
-        entry_price = float(signal_match.group(2))
-        tp_levels = [float(tp) for tp in tp_matches]
-        stop_loss = float(sl_match.group(1)) if sl_match else None
-        
-        await save_signal(message.id, signal_type, entry_price, tp_levels, stop_loss)
+    try:
+        # إرسال الطلب إلى cTrader API
+        ctrader_client.send(request)
+        print("Trade Executed")
+    except Exception as e:
+        print(f"Error executing trade: {e}")
+        async_send_telegram_notification(f"Error executing trade: {e}")
 
-async def handle_update(message):
-    original_message_id = message.reply_to_msg_id
-    if original_message_id:
-        if "Move SL" in message.message:
-            new_sl = re.search(r"Move SL to (\d+\.\d+)", message.message)
-            if new_sl:
-                await update_signal(original_message_id, new_sl=new_sl.group(1))
-        elif "SL hit" in message.message:
-            await update_signal(original_message_id, new_status="closed")
+# التعامل مع الرسائل الجديدة في القنوات المحددة
+@client.on(events.NewMessage(chats=('channel_username1', 'channel_username2')))  # ضع أسماء القنوات هنا
+async def signal_handler(event):
+    message = event.message.message
+    reply_to_msg_id = event.message.reply_to_msg_id
+    
+    if reply_to_msg_id:
+        signal_data = get_signal_from_db(reply_to_msg_id)
+        if signal_data:
+            print(f"Received update for signal {reply_to_msg_id}: {message}")
+            handle_update(signal_data, message)
+    
+    elif "BUY" in message or "SELL" in message:
+        signal_data = parse_signal(message)
+        if signal_data:
+            message_id = event.message.id
+            add_signal_to_db(message_id, signal_data)
+            execute_trade(signal_data)
 
-@client.on(events.NewMessage(chats=channel_ids))
-async def new_message_listener(event):
-    print(f"New message from channel: {event.chat_id}")
-    print(f"Message content: {event.message.text}")
-    if event.message.is_reply:
-        print("Message is a reply")
-        await handle_update(event.message)
-    else:
-        print("Message is a new signal")
-        await handle_signal(event.message)
+# التعامل مع التحديثات (مثل تحريك SL)
+def handle_update(signal_data, message):
+    if "Move SL to your entry price" in message:
+        print("Updating SL to entry price...")
+    elif "SL hit on breakeven" in message:
+        print("SL hit on breakeven. Closing trade or handling accordingly.")
+    elif "TP1 Hit" in message:
+        print("TP1 Hit. Updating SL or handling TP.")
 
+# إرسال إشعار عبر Telegram
+async def async_send_telegram_notification(message):
+    await client.send_message('your_telegram_username', message)
+
+# تشغيل عميل Telegram
 async def main():
-    await client.start(phone=phone_number)
-    print("Client started")
+    await start_telegram_client()
+    create_tables()  # إنشاء الجداول عند بدء التطبيق
     await client.run_until_disconnected()
 
-# تشغيل العميل
 if __name__ == '__main__':
-    asyncio.run(main())
+    client.loop.run_until_complete(main())
